@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Optimization System</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, select {
+            width: 100%;
+            padding: 5px;
+        }
+        button {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        #results, #performance-metrics {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+        #chart-container {
+            margin-top: 20px;
+            width: 100%;
+            height: 400px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Email Optimization System</h1>
+    
+    <div class="form-group">
+        <label for="hour">Hour (0-23):</label>
+        <input type="number" id="hour" min="0" max="23" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="day">Day of Week (0-6, 0 is Monday):</label>
+        <input type="number" id="day" min="0" max="6" required>
+    </div>
+    
+    <div class="form-group">
+        <label for="subject">Email Subject:</label>
+        <input type="text" id="subject" required>
+    </div>
+    
+    <button onclick="predict()">Predict</button>
+    
+    <div id="results"></div>
+
+    <h2>Performance Metrics</h2>
+    <div id="performance-metrics"></div>
+
+    <h2>Prediction History</h2>
+    <div id="chart-container">
+        <canvas id="predictionChart"></canvas>
+    </div>
+
+    <script>
+        let predictionChart = null;
+
+        async function predict() {
+            const hour = document.getElementById('hour').value;
+            const day = document.getElementById('day').value;
+            const subject = document.getElementById('subject').value;
+            
+            const sendTimeResponse = await fetch('/predict_send_time', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ hour: parseInt(hour), day: parseInt(day) }),
+            });
+            
+            const subjectLineResponse = await fetch('/recommend_subject_line', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ subject: subject }),
+            });
+            
+            const sendTimeData = await sendTimeResponse.json();
+            const subjectLineData = await subjectLineResponse.json();
+            
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `
+                <h2>Results:</h2>
+                <h3>Send Time Prediction:</h3>
+                <p>Predicted Opens: ${sendTimeData.predicted_opens.toFixed(2)}</p>
+                <p>Predicted Clicks: ${sendTimeData.predicted_clicks.toFixed(2)}</p>
+                <h3>Subject Line Prediction:</h3>
+                <p>Predicted Opens: ${subjectLineData.predicted_opens.toFixed(2)}</p>
+                <p>Predicted Clicks: ${subjectLineData.predicted_clicks.toFixed(2)}</p>
+            `;
+
+            await updatePerformanceMetrics();
+            await updatePredictionChart();
+        }
+
+        async function updatePerformanceMetrics() {
+            const response = await fetch('/performance_metrics');
+            const metrics = await response.json();
+
+            const metricsDiv = document.getElementById('performance-metrics');
+            metricsDiv.innerHTML = `
+                <p>Total Predictions: ${metrics.total_predictions}</p>
+                <p>MSE Opens: ${metrics.mse_opens.toFixed(2)}</p>
+                <p>MSE Clicks: ${metrics.mse_clicks.toFixed(2)}</p>
+                <p>MAE Opens: ${metrics.mae_opens.toFixed(2)}</p>
+                <p>MAE Clicks: ${metrics.mae_clicks.toFixed(2)}</p>
+            `;
+        }
+
+        async function updatePredictionChart() {
+            try {
+                const response = await fetch('/prediction_history');
+                const data = await response.json();
+                console.log("Prediction history data:", data);
+
+                if (data.timestamps.length === 0) {
+                    console.log("No prediction history data available");
+                    document.getElementById('chart-container').innerHTML = '<p>No prediction history data available</p>';
+                    return;
+                }
+
+                const ctx = document.getElementById('predictionChart');
+                
+                if (!ctx) {
+                    console.error("Canvas element 'predictionChart' not found");
+                    return;
+                }
+
+                // Destroy existing chart if it exists
+                if (predictionChart) {
+                    predictionChart.destroy();
+                }
+
+                predictionChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: data.timestamps.map(t => new Date(t)),
+                        datasets: [
+                            {
+                                label: 'Predicted Opens',
+                                data: data.predicted_opens.map((value, index) => ({x: new Date(data.timestamps[index]), y: value})),
+                                borderColor: 'blue',
+                                fill: false
+                            },
+                            {
+                                label: 'Predicted Clicks',
+                                data: data.predicted_clicks.map((value, index) => ({x: new Date(data.timestamps[index]), y: value})),
+                                borderColor: 'green',
+                                fill: false
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Prediction History'
+                            }
+                        },
+                        scales: {
+                            x: {
+                                type: 'time',
+                                time: {
+                                    unit: 'day'
+                                },
+                                title: {
+                                    display: true,
+                                    text: 'Date'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Value'
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Error updating prediction chart:", error);
+                document.getElementById('chart-container').innerHTML = '<p>Error loading prediction history</p>';
+            }
+        }
+
+        // Initial load of performance metrics and prediction chart
+        document.addEventListener('DOMContentLoaded', () => {
+            updatePerformanceMetrics();
+            updatePredictionChart();
+        });
+
+        // Add event listener to update chart when window is resized
+        window.addEventListener('resize', updatePredictionChart);
+    </script>
+</body>
+</html>
